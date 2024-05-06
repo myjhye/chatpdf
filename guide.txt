@@ -1,0 +1,85 @@
+1. 업로드한 파일을 임시 파일 경로에 저장
+
+import tempfile
+import os
+
+# 임시 디렉토리 생성
+temp_dir = tempfile.TemporaryDirectory()
+# 업로드된 파일의 이름을 임시 디렉토리 경로와 결합
+temp_filepath = os.path.join(temp_dir.name, uploaded_file.name)
+
+# 업로드된 파일을 바이너리 쓰기 모드로 임시 경로에 저장
+with open(temp_filepath, "wb") as f:
+    f.write(uploaded_file.getvalue())
+
+-----------------------------------------------------------------------------------------------
+
+2. 임시 파일 경로에 저장된 파일을 바이너리 모드로 읽기 -> 원본 데이터를 변형 없이 읽기 위해
+
+# 바이너리 읽기 모드로 파일 열기
+with open(temp_filepath, "rb") as file:
+    data = file.read()  # 파일의 내용을 읽어서 data 변수에 저장
+
+
+-----------------------------------------------------------------------------------------------
+
+3. 저장된 파일을 split해서 페이지 별로 나누기
+
+from langchain.document_loaders import PyPDFLoader
+
+# PyPDFLoader를 사용하여 PDF 파일을 로드하고 페이지별로 분할
+loader = PyPDFLoader(temp_filepath)
+pages = loader.load_and_split()
+
+-----------------------------------------------------------------------------------------------
+
+
+4. split한 페이지를 더 세분화해서 나누기
+
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+# 페이지를 더 작은 텍스트 청크로 나누기
+text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=300,
+    chunk_overlap=20,
+    length_function=len,
+    is_separator_regex=False
+)
+texts = text_splitter.split_documents(pages)
+
+-----------------------------------------------------------------------------------------------
+
+
+5. 이 세분화한 페이지의 텍스트들을 임베딩해서 chroma db에 넣기
+
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.vectorstores import Chroma
+
+# 임베딩 모델 초기화
+embeddings_model = OpenAIEmbeddings(openai_api_key="your-openai-api-key")
+
+# 문서들을 임베딩하고 Chroma 벡터 저장소에 저장
+db = Chroma.from_documents(texts, embeddings_model)
+
+-----------------------------------------------------------------------------------------------
+
+6. 사용자의 질문을 임베딩해서 chroma에서 찾기
+
+from langchain.chains import RetrievalQA
+from langchain.chat_models import ChatOpenAI
+
+# 질문을 처리하는 체인 설정
+llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0, openai_api_key="your-openai-api-key")
+qa_chain = RetrievalQA.from_chain_type(llm, retriever=db.as_retriever())
+
+
+-----------------------------------------------------------------------------------------------
+
+7. 찾은 결과를 내보내기
+
+# 사용자의 질문 입력 받기
+question = input("Enter your question: ")
+
+# 질문에 대한 응답 생성
+result = qa_chain({"query": question})
+print(result["result"])  # 결과 출력
